@@ -1,0 +1,31 @@
+[project]
+name = "mgp-py-workspace"
+version = "0.0.0"
+description = "uv workspace root for mgp-py (not published; each package under packages/* is published independently)."
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+  "ruff>=0.6",
+  "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+mcp-common = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages"]
+addopts = "-ra"
