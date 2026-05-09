@@ -1,0 +1,19 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[manifest]
+members = [
+    "mcp-common",
+    "mgp-py-workspace",
+]
+
+[[package]]
+name = "mcp-common"
+version = "0.1.0"
+source = { editable = "packages/mcp-common" }
+
+[[package]]
+name = "mgp-py-workspace"
+version = "0.0.0"
+source = { virtual = "." }
