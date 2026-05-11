@@ -1,13 +1,21 @@
 [project]
 name = "mcp-common"
-version = "0.1.0"
+version = "0.2.0"
 description = "Common Python utilities shared across Magic Gateway Protocol (MGP) servers."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
   { name = "ClotoCore Project", email = "ClotoCore@proton.me" },
 ]
-dependencies = []
+dependencies = [
+  # `mcp_common.mgp_utils` performs deferred runtime imports of
+  # `mcp.shared.message` / `mcp.types` inside its async helpers, so the
+  # `mcp` package is a hard runtime dependency for any consumer that uses
+  # `mgp_utils`. The other foundation modules (validation / isolation /
+  # no_persist) are stdlib-only, but a single declared dep is simpler than
+  # split optional-extras for now.
+  "mcp>=1.0",
+]
 
 [build-system]
 requires = ["hatchling"]
