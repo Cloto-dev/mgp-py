@@ -1,6 +1,6 @@
 """Common utilities shared across Magic Gateway Protocol (MGP) Python servers.
 
-v0.2.0 introduces the foundation layer ported from
+Foundation layer (Phase 2 Step 2-α) ported from
 ``cloto-mcp-servers/servers/common/``:
 
 - :mod:`mcp_common.validation` — graceful-degradation argument validators
@@ -16,9 +16,21 @@ v0.2.0 introduces the foundation layer ported from
   emitters (``MgpCapabilities`` / ``send_mgp_stream_chunk`` /
   ``write_mgp_*``).
 
-Additional modules (mcp tooling, embedding client, semantic cache, search,
-mcp stream interceptor, LLM provider) are deferred to subsequent Phase 2
-sub-PRs.
+Network / cache layer (Phase 2 Step 2-β):
+
+- :mod:`mcp_common.embedding_client` — vector embedding client with TTL-based
+  LRU cache for single-text queries (``EmbeddingClient`` /
+  ``pack_embedding`` / ``unpack_embedding``).
+- :mod:`mcp_common.semantic_cache` — in-memory semantic cache that matches
+  cached results via embedding similarity (``SemanticCache``).
+- :mod:`mcp_common.search` — search provider abstraction with a SearXNG →
+  Tavily → DuckDuckGo fallback chain (``SearchProvider`` /
+  ``SearXNGProvider`` / ``TavilyProvider`` / ``DuckDuckGoProvider`` /
+  ``ChainProvider`` / ``create_search_provider``).
+
+Remaining modules (``mcp_utils``, ``mcp_stream_interceptor``,
+``llm_provider``) are deferred to subsequent Phase 2 sub-PRs
+(Step 2-γ / 2-δ / 2-ε).
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
