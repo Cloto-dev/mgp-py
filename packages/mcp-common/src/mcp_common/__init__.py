@@ -35,8 +35,16 @@ MCP SDK tooling (Phase 2 Step 2-γ):
   ``ToolRegistry.tool`` / ``ToolRegistry.auto_tool`` /
   ``run_mcp_server`` / ``install_mgp_validation_filter``).
 
-Remaining modules (``mcp_stream_interceptor``, ``llm_provider``)
-are deferred to subsequent Phase 2 sub-PRs (Step 2-δ / 2-ε).
+MGP streaming middleware (Phase 2 Step 2-δ):
+
+- :mod:`mcp_common.mcp_stream_interceptor` — async pump that sits between
+  the raw stdio read stream and the MCP ``ServerSession``, intercepting
+  the custom MGP §12.7 ``mgp/stream/cancel`` requests and §12.9
+  ``notifications/mgp.stream.gap`` notifications that would otherwise be
+  dropped by the SDK's closed Pydantic unions (``mgp_message_interceptor``
+  / ``_handle_mgp_cancel`` / ``_handle_mgp_gap``).
+
+The remaining ``llm_provider`` module is deferred to Phase 2 Step 2-ε.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
