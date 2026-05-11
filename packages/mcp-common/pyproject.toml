@@ -1,6 +1,6 @@
 [project]
 name = "mcp-common"
-version = "0.2.0"
+version = "0.3.0"
 description = "Common Python utilities shared across Magic Gateway Protocol (MGP) servers."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -15,6 +15,14 @@ dependencies = [
   # no_persist) are stdlib-only, but a single declared dep is simpler than
   # split optional-extras for now.
   "mcp>=1.0",
+  # `mcp_common.embedding_client` / `semantic_cache` / `search` perform
+  # async HTTP calls via `httpx`. `embedding_client._embed_via_api` also
+  # lazily imports `numpy` for L2-normalization when `mode="api"`; numpy
+  # is not declared here because callers using `mode="http"` (the common
+  # path) do not need it. Callers selecting `mode="api"` are responsible
+  # for installing numpy themselves (typically via the consuming server's
+  # own dependency set).
+  "httpx>=0.27",
 ]
 
 [build-system]

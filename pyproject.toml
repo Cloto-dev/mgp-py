@@ -8,6 +8,12 @@ requires-python = ">=3.11"
 dev = [
   "ruff>=0.6",
   "pytest>=8",
+  # `pytest-asyncio` is required by Phase 2 Step 2-β tests
+  # (test_embedding_cache / test_semantic_cache / test_search) which mark
+  # async coroutines with `@pytest.mark.asyncio`. We keep the default
+  # "strict" mode so only explicitly decorated tests run as async — sync
+  # tests in earlier sub-phases stay untouched.
+  "pytest-asyncio>=0.23",
 ]
 
 [tool.uv]
@@ -29,3 +35,4 @@ select = ["E", "F", "I", "W", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["packages"]
 addopts = "-ra"
+asyncio_mode = "strict"
