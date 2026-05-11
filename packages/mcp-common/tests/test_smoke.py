@@ -4,4 +4,4 @@ import mcp_common
 
 
 def test_version_matches_pyproject() -> None:
-    assert mcp_common.__version__ == "0.5.0"
+    assert mcp_common.__version__ == "0.5.1"

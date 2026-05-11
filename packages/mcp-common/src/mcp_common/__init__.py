@@ -44,7 +44,21 @@ MGP streaming middleware (Phase 2 Step 2-δ):
   dropped by the SDK's closed Pydantic unions (``mgp_message_interceptor``
   / ``_handle_mgp_cancel`` / ``_handle_mgp_gap``).
 
-The remaining ``llm_provider`` module is deferred to Phase 2 Step 2-ε.
+LLM provider + streaming (Phase 2 Step 2-ε):
+
+- :mod:`mcp_common.llm_provider` — OpenAI-compatible HTTP client with
+  SSE streaming, MGP §12 stream support (``mgp/stream/cancel`` /
+  ``notifications/mgp.stream.gap`` retransmission), tool-call orchestration,
+  and the ``create_llm_mcp_server`` / ``run_server`` entry points
+  (``ProviderConfig`` / ``StreamState`` / ``LlmApiError`` /
+  ``call_llm_api_streaming`` / ``handle_think_with_tools`` /
+  ``handle_think_with_tools_streaming`` / ``load_llm_provider_config``).
+  This module owns the ``StreamState`` dataclass referenced by the
+  ``TYPE_CHECKING`` block in :mod:`mcp_common.mcp_stream_interceptor`;
+  the forward reference left in Step 2-δ now resolves cleanly.
+
+Phase 2 module migration from ``cloto-mcp-servers/servers/common/`` is
+complete with this sub-PR.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
