@@ -28,9 +28,15 @@ Network / cache layer (Phase 2 Step 2-β):
   ``SearXNGProvider`` / ``TavilyProvider`` / ``DuckDuckGoProvider`` /
   ``ChainProvider`` / ``create_search_provider``).
 
-Remaining modules (``mcp_utils``, ``mcp_stream_interceptor``,
-``llm_provider``) are deferred to subsequent Phase 2 sub-PRs
-(Step 2-γ / 2-δ / 2-ε).
+MCP SDK tooling (Phase 2 Step 2-γ):
+
+- :mod:`mcp_common.mcp_utils` — decorator-based MCP tool registration
+  with auto-validated parameter extraction (``ToolRegistry`` /
+  ``ToolRegistry.tool`` / ``ToolRegistry.auto_tool`` /
+  ``run_mcp_server`` / ``install_mgp_validation_filter``).
+
+Remaining modules (``mcp_stream_interceptor``, ``llm_provider``)
+are deferred to subsequent Phase 2 sub-PRs (Step 2-δ / 2-ε).
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
