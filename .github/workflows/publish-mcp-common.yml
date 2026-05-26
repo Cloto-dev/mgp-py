@@ -1,0 +1,83 @@
+name: Publish mcp-common to PyPI
+
+# Triggered by a per-package tag in the `mcp-common-vX.Y.Z` namespace
+# (CLAUDE.md "Per-Package Version & Release") or manual dispatch against
+# an existing tag (lets us publish a previously-cut tag without retag).
+#
+# Authoritative path: `packages/mcp-common/pyproject.toml` carries the
+# version; the workflow asserts the tag suffix and the pyproject version
+# agree before building, so a mistyped tag fails loud rather than
+# publishing a mismatched artifact.
+#
+# Authentication: PyPI API token via the `PYPI_API_TOKEN` repo secret
+# (user = `__token__`). Once the project exists on PyPI we can migrate
+# to OIDC Trusted Publishing — that path requires the project to be
+# pre-registered there, which is not possible for the first publish.
+
+on:
+  push:
+    tags:
+      - 'mcp-common-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. mcp-common-v0.5.1). Must already point at the commit you want to ship.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mcp-common
+    steps:
+      - name: Resolve target ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "tag_version=${tag#mcp-common-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            echo "tag_version=${GITHUB_REF#refs/tags/mcp-common-v}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          tag: ${{ inputs.tag }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Verify tag matches pyproject version
+        run: |
+          PKG_VERSION=$(grep -E '^version\s*=' packages/mcp-common/pyproject.toml \
+            | head -1 \
+            | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "${{ steps.ref.outputs.tag_version }}" != "$PKG_VERSION" ]; then
+            echo "::error::tag suffix '${{ steps.ref.outputs.tag_version }}' does not match packages/mcp-common/pyproject.toml version '$PKG_VERSION'"
+            exit 1
+          fi
+          echo "Tag and pyproject agree on version $PKG_VERSION"
+
+      - name: Build sdist + wheel
+        working-directory: packages/mcp-common
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/mcp-common/dist
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          # `skip-existing` lets a re-dispatch on the same tag be idempotent
+          # (PyPI rejects re-uploads of an existing version-filename pair).
+          skip-existing: true
