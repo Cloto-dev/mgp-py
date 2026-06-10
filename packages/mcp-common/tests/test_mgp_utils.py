@@ -2,7 +2,7 @@
 
 The async stream-notification helpers (`send_mgp_stream_chunk`,
 `write_mgp_*`) require a live MCP `ServerSession` / `MemoryObjectSendStream`
-and are exercised end-to-end by `cloto-mcp-servers/servers/tests/test_streaming.py`
+and are exercised end-to-end by `clotohub-servers/servers/tests/test_streaming.py`
 (an integration test that stays in that repo until Phase 2-δ moves
 `mcp_stream_interceptor` and the streaming-side reference path). This file
 covers the synchronous capability-builder logic that has no MCP runtime
