@@ -1,6 +1,6 @@
 """Tests for ``mcp_common.mcp_stream_interceptor``.
 
-The upstream ``test_streaming.py`` lives in ``cloto-mcp-servers/servers/tests/``
+The upstream ``test_streaming.py`` lives in ``clotohub-servers/servers/tests/``
 and exercises the interceptor as part of the full LLM streaming round-trip
 in ``common.llm_provider``. Because ``llm_provider`` is not migrated until
 Step 2-ε, this file covers the interceptor in isolation with a hand-rolled

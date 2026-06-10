@@ -8,7 +8,7 @@ uv workspace of Python utilities for **MGP** (see [`mgp-spec`](https://github.co
 
 - **`../mgp-spec/docs/MGP_SPEC.md` + `../mgp-spec/docs/MGP_CONNECTOR.md`** — Protocol authority. `mgp-py` is a downstream consumer of these specs.
 - **`../mgp-spec/schemas/connector/v1.json`** — JSON Schema authority for any `cloto-connector.json` validator that ships in this workspace (currently planned in `packages/mgp-sdk-py`).
-- **`packages/mcp-common/src/mcp_common/`** — Current public surface (10 modules) historically sourced from `cloto-mcp-servers/servers/common/`. Treat this workspace as the single source of truth going forward.
+- **`packages/mcp-common/src/mcp_common/`** — Current public surface (10 modules) historically sourced from `cloto-mcp-servers/servers/common/` (the monorepo is now named `clotohub-servers`, private). Treat this workspace as the single source of truth going forward.
 
 ## Workspace Layout
 
@@ -45,7 +45,7 @@ CI (`.github/workflows/ci.yml`) runs `uv sync --all-packages` → `ruff check .`
 
 ## ruff Configuration
 
-- **`line-length = 100`** (root). Upstream `cloto-mcp-servers/servers/common/` uses `120`; when porting modules in, long signatures and strings **MUST** be wrapped (multi-line params, intermediate variable, implicit string join). Behavior is unchanged; only formatting moves.
+- **`line-length = 100`** (root). Upstream `clotohub-servers/servers/common/` uses `120`; when porting modules in, long signatures and strings **MUST** be wrapped (multi-line params, intermediate variable, implicit string join). Behavior is unchanged; only formatting moves.
 - **`target-version = "py311"`** consistent with workspace Python floor.
 - **Lint select**: `E`, `F`, `I`, `W`, `UP`. `UP037` may auto-unquote string annotations under `from __future__ import annotations` — review such changes carefully.
 
