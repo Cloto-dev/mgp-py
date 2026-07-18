@@ -27,6 +27,14 @@ def registry():
     return reg
 
 
+def test_instructions_thread_into_initialization_options():
+    """The instructions kwarg must ride the initialize response end-to-end."""
+    reg = ToolRegistry("test-server", instructions="operating guidance")
+    assert reg.server.create_initialization_options().instructions == "operating guidance"
+    # Default stays None — a server that passes nothing must not invent the field.
+    assert ToolRegistry("test-server").server.create_initialization_options().instructions is None
+
+
 def test_tool_registration(registry):
     """Tools should be registered with correct metadata."""
     assert len(registry._tools) == 2
