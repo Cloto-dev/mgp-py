@@ -86,6 +86,55 @@ def test_status_after_decay_returns_unpaused_shape():
     }
 
 
+def test_status_reads_the_clock_once(monkeypatch):
+    """bug-103: status() must not sample the clock twice.
+
+    With two samples, a TTL boundary crossed between them produced the
+    contradictory ``{paused: true, ttl_remaining_seconds: 0}``. Here the second
+    sample would land past the deadline, so a second read is observable.
+    """
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    no_persist._no_persist_until = base + timedelta(seconds=5)
+    reads: list[datetime] = []
+    ticks = iter([base, base + timedelta(seconds=10)])
+
+    def fake_now() -> datetime:
+        value = next(ticks)
+        reads.append(value)
+        return value
+
+    monkeypatch.setattr(no_persist, "_now", fake_now)
+    s = no_persist.status()
+
+    assert len(reads) == 1, "status() sampled the clock more than once"
+    assert s["paused"] is True
+    assert s["ttl_remaining_seconds"] == 5
+
+
+def test_decay_uses_the_supplied_clock(monkeypatch):
+    """_decay(now) judges the deadline against ``now``, not a fresh sample."""
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    no_persist._no_persist_until = base + timedelta(seconds=5)
+    # A fresh sample would keep the flag armed; the supplied clock is past it.
+    monkeypatch.setattr(no_persist, "_now", lambda: base)
+
+    no_persist._decay(base + timedelta(seconds=6))
+    assert no_persist._no_persist_until is None
+
+
+def test_decay_without_a_clock_samples_now(monkeypatch):
+    """The default path still reads the clock itself."""
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    no_persist._no_persist_until = base + timedelta(seconds=5)
+    monkeypatch.setattr(no_persist, "_now", lambda: base)
+    no_persist._decay()
+    assert no_persist._no_persist_until == base + timedelta(seconds=5)
+
+    monkeypatch.setattr(no_persist, "_now", lambda: base + timedelta(seconds=6))
+    no_persist._decay()
+    assert no_persist._no_persist_until is None
+
+
 def test_consecutive_pause_overwrites_ttl():
     no_persist.pause(ttl_seconds=30)
     first = no_persist._no_persist_until
@@ -180,6 +229,43 @@ def test_make_skipped_response_works_when_default_has_no_id_field():
     assert body["ok"] is True
     assert body["persisted"] is False
     assert body["dry_run"] is True
+
+
+def test_make_skipped_response_nulls_action_specific_id_keys():
+    """bug-104: a skipped write must not echo a truthy deleted_id/updated_id/...
+
+    Consumers that branch on the action's id field (rather than the
+    authoritative ``persisted: false``) read such an echo as a completed write.
+    """
+    no_persist.pause(ttl_seconds=300)
+    default = {
+        "ok": True,
+        "deleted_id": 42,
+        "updated_id": 43,
+        "locked_id": 44,
+        "unlocked_id": 45,
+        "episode_id": 46,
+        "title": "keep me",
+    }
+    body = no_persist.make_skipped_response(default, "delete_memory")
+
+    for key in no_persist._ACTION_ID_KEYS:
+        assert body[key] is None, f"skipped write echoed a truthy {key}"
+    assert body["persisted"] is False
+    assert body["dry_run"] is True
+    # Unrelated fields survive, and the caller's dict is not mutated.
+    assert body["title"] == "keep me"
+    assert default["deleted_id"] == 42
+
+
+def test_make_skipped_response_does_not_invent_absent_id_keys():
+    """Only keys the caller actually returns are nulled — none are added."""
+    no_persist.pause(ttl_seconds=300)
+    body = no_persist.make_skipped_response({"ok": True, "deleted_id": 7}, "delete_memory")
+    assert body["deleted_id"] is None
+    for key in no_persist._ACTION_ID_KEYS:
+        if key != "deleted_id":
+            assert key not in body
 
 
 def test_make_skipped_response_does_not_check_is_paused():
