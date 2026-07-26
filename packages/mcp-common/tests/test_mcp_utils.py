@@ -129,6 +129,70 @@ async def test_auto_tool_uses_default_when_key_missing():
     assert await reg._handlers["fetch"]({"limit": 25}) == {"limit": 25}
 
 
+@pytest.mark.asyncio
+async def test_auto_tool_forwards_an_explicit_none_default():
+    """A three-element spec forwards its default even when that default is None.
+
+    bug-019: gating on ``default is not None`` made ``("project_id", str, None)``
+    indistinguishable from a two-element spec, so ``validate_str``'s hardcoded
+    ``""`` won and an omitted project_id reached the handler as ``""``
+    (one bucket) instead of ``None`` (no filter).
+    """
+    reg = ToolRegistry("auto-server")
+    received: dict = {}
+
+    async def handler(agent_id: str, project_id: str | None) -> dict:
+        received["agent_id"] = agent_id
+        received["project_id"] = project_id
+        return {"ok": True}
+
+    reg.auto_tool(
+        "search",
+        "Search with an optional project filter",
+        {"type": "object"},
+        handler,
+        [("agent_id", str), ("project_id", str, None)],
+    )
+
+    # Omitted → the explicit None default wins over the validator's "".
+    await reg._handlers["search"]({"agent_id": "a"})
+    assert received["project_id"] is None
+
+    # An explicit JSON null resolves to None as well (wrong type → default).
+    await reg._handlers["search"]({"agent_id": "a", "project_id": None})
+    assert received["project_id"] is None
+
+    # A supplied value still passes straight through.
+    await reg._handlers["search"]({"agent_id": "a", "project_id": "proj-x"})
+    assert received["project_id"] == "proj-x"
+
+    # And an empty string stays distinguishable from the omitted case.
+    await reg._handlers["search"]({"agent_id": "a", "project_id": ""})
+    assert received["project_id"] == ""
+
+
+@pytest.mark.asyncio
+async def test_auto_tool_two_element_spec_still_uses_the_validator_default():
+    """The bug-019 fix must not swallow the no-default branch (spec arity is the key)."""
+    reg = ToolRegistry("auto-server")
+    received: dict = {}
+
+    async def handler(name: str, count: int) -> dict:
+        received["args"] = (name, count)
+        return {"ok": True}
+
+    reg.auto_tool(
+        "count",
+        "Two-element specs carry no default",
+        {"type": "object"},
+        handler,
+        [("name", str), ("count", int)],
+    )
+
+    await reg._handlers["count"]({})
+    assert received["args"] == ("", 0)
+
+
 # ── MGP validation log filter ───────────────────────────────────────────────
 
 

@@ -5,9 +5,10 @@ Used by CPersona & CScheduler to let an interactive client (typically
 Claude Code) declare "this session is ephemeral — do not write to my
 memory or scope/goal/task store" before running benchmarks, AB tests, or
 throwaway exploration. The flag is module-level state, scoped to the
-MCP server process; no filesystem, no IPC, no cross-server sync. Each
-server keeps its own flag — clients that want both paused MUST call
-``pause_persistence`` on each.
+MCP server process (which is NOT the same as a session — see Concurrency
+& scope); no filesystem, no IPC, no cross-server sync. Each server keeps
+its own flag — clients that want both paused MUST call ``pause_persistence``
+on each.
 
 Semantics
 ---------
@@ -26,14 +27,22 @@ Semantics
   top of a handler and reuse the boolean for the duration of that call
   (avoids TTL-edge flips inside long bulk operations).
 
-Concurrency
------------
+Concurrency & scope
+-------------------
 ``_no_persist_until`` is a single Python attribute; reads and writes are
-atomic under the GIL, so no ``asyncio.Lock`` is required. Module state
-is intentionally per-process: an MCP server restart loses the flag,
-which is the correct semantics — the user's intent ("don't persist *this
-session*") is naturally session-scoped, and a respawned server is
-effectively a new session.
+atomic under the GIL, so no ``asyncio.Lock`` is required.
+
+The flag is PROCESS-GLOBAL, and a process is not the same as a session in
+general. Under a one-process-per-client transport (stdio) the two coincide:
+the flag is effectively session-scoped and an MCP server restart correctly
+drops it. But under a multiplexed transport — the streamable-HTTP session
+manager runs a single process serving every connected client — the one
+global is SHARED across all sessions. One client's ``pause()`` then turns
+writes into no-ops for every other session until ``resume()`` or the TTL
+elapses, and those sessions receive no signal. There is deliberately no
+per-session keying; callers surface this blast radius via a ``scope``
+field in the pause/resume/status responses their tool handlers return,
+rather than this module pretending per-process implies per-session.
 
 Versioning: introduced in cloto-mcp-cscheduler 0.2.6 / cloto-mcp-cpersona
 2.4.19.
@@ -57,6 +66,17 @@ __all__ = [
 DEFAULT_TTL_SECONDS = 1800  # 30 minutes
 MAX_TTL_SECONDS = 86400  # 1 day — clamp upper bound
 
+# Action-specific id keys write tools return alongside (or instead of) a plain
+# ``id``. ``make_skipped_response`` nulls every one of them so no consumer can
+# read a skipped write as a completed one (bug-104).
+_ACTION_ID_KEYS = (
+    "deleted_id",
+    "updated_id",
+    "locked_id",
+    "unlocked_id",
+    "episode_id",
+)
+
 _no_persist_until: datetime | None = None
 
 
@@ -64,10 +84,16 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _decay() -> None:
-    """Lazily clear the flag if its TTL has elapsed."""
+def _decay(now: datetime | None = None) -> None:
+    """Lazily clear the flag if its TTL has elapsed.
+
+    ``now`` lets a caller evaluate the clock exactly once across the decay
+    check and whatever it computes from the deadline afterwards (bug-103).
+    """
     global _no_persist_until
-    if _no_persist_until is not None and _now() >= _no_persist_until:
+    if now is None:
+        now = _now()
+    if _no_persist_until is not None and now >= _no_persist_until:
         _no_persist_until = None
 
 
@@ -121,14 +147,17 @@ def resume() -> dict[str, Any]:
 
 def status() -> dict[str, Any]:
     """Return the current pause state in tool-response shape."""
-    _decay()
+    # bug-103: evaluate the clock once — a second _now() after _decay() could
+    # cross the TTL boundary and report the contradictory paused:true / ttl:0.
+    now = _now()
+    _decay(now)
     if _no_persist_until is None:
         return {
             "paused": False,
             "expires_at": None,
             "ttl_remaining_seconds": None,
         }
-    remaining = (_no_persist_until - _now()).total_seconds()
+    remaining = (_no_persist_until - now).total_seconds()
     return {
         "paused": True,
         "expires_at": _no_persist_until.isoformat(),
@@ -158,7 +187,8 @@ def make_skipped_response(
     Starts from ``default_body`` (the shape the caller would normally
     return on success), replaces any ``id`` key with the string sentinel
     ``"no-persist"`` (truthy, unambiguous, won't collide with real IDs),
-    and merges in:
+    nulls every action-specific id key (``_ACTION_ID_KEYS``) so a skipped
+    write cannot be read as a completed one, and merges in:
 
     - ``persisted: False``
     - ``dry_run: True``
@@ -175,6 +205,12 @@ def make_skipped_response(
     body: dict[str, Any] = dict(default_body)
     if "id" in body:
         body["id"] = "no-persist"
+    # bug-104: action-specific id keys must not echo the caller-supplied id —
+    # a truthy deleted_id/updated_id read as success to consumers that branch
+    # on the id field instead of the authoritative `persisted: false`.
+    for key in _ACTION_ID_KEYS:
+        if key in body:
+            body[key] = None
     body["persisted"] = False
     body["dry_run"] = True
     body["reason"] = (
