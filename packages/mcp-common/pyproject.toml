@@ -1,5 +1,12 @@
 [project]
-name = "mcp-common"
+# Distribution name, deliberately distinct from the import name `mcp_common`
+# below. `mcp-common` on PyPI belongs to an unrelated project
+# (github.com/lesleslie/mcp-common), so publishing under it was never
+# possible; `cloto-mcp-common` matches the `cloto-mcp-*` namespace the
+# servers in clotohub-servers already use, and this is their shared library.
+# The import name does not follow: `mcp_common` is vendored into every
+# consumer, and renaming it would break them for no gain.
+name = "cloto-mcp-common"
 version = "0.6.0"
 description = "Common Python utilities shared across Magic Gateway Protocol (MGP) servers."
 requires-python = ">=3.11"

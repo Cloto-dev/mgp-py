@@ -14,7 +14,7 @@ uv workspace of Python utilities for **MGP** (see [`mgp-spec`](https://github.co
 
 | Package | Path | Status | Role |
 |---|---|---|---|
-| `mcp-common` | `packages/mcp-common/` | v0.5.1 | 10 modules — foundation (`validation`, `isolation`, `no_persist`, `mcp_utils`), network/cache (`embedding_client`, `semantic_cache`, `search`), MCP tooling (`mgp_utils`), streaming (`mcp_stream_interceptor`, `llm_provider`) |
+| `cloto-mcp-common` | `packages/mcp-common/` | unpublished | 10 modules — foundation (`validation`, `isolation`, `no_persist`, `mcp_utils`), network/cache (`embedding_client`, `semantic_cache`, `search`), MCP tooling (`mgp_utils`), streaming (`mcp_stream_interceptor`, `llm_provider`) |
 | `mgp-seal-py` | `packages/mgp-seal-py/` | planned | Python port of `mgp-rs/crates/mgp-seal` (HMAC-SHA256 + Ed25519 verification) |
 | `mgp-sdk-py`  | `packages/mgp-sdk-py/`  | planned | Python port of `mgp-rs/crates/mgp-sdk` (connector manifest validation, source adapters, registry shape) |
 | `validate-cli` | `packages/validate-cli/` | planned | CLI for connector authors to validate `cloto-connector.json` locally |
@@ -52,7 +52,10 @@ CI (`.github/workflows/ci.yml`) runs `uv sync --all-packages` → `ruff check .`
 ## Per-Package Version & Release
 
 - **MUST**: Each `packages/<pkg>/pyproject.toml` carries its own `version = "X.Y.Z"`. Workspace root is `version = "0.0.0"` and `package = false` (never published).
-- **SHOULD**: Tag releases per package, namespaced: `{package-name}-vX.Y.Z` (e.g. `mcp-common-v0.5.1`). At time of writing the repo has no tags — pin via commit SHA or branch ref until tagging starts.
+- **MUST**: A package's **distribution name** (`[project].name`) is checked for availability on PyPI before it is written down, even when publishing is not imminent. `mcp-common` was carried over from the monorepo directory it came from and turned out to belong to an unrelated project (`github.com/lesleslie/mcp-common`), which made the publish workflow unable to succeed for as long as it existed. Renamed to `cloto-mcp-common` on 2026-07-29, matching the `cloto-mcp-*` namespace the servers in `clotohub-servers` already use.
+- **MUST NOT**: Rename an **import name** to follow a distribution rename. `mcp_common` is vendored into every consumer; the three names are allowed to differ, and here they do — distribution `cloto-mcp-common`, directory `packages/mcp-common/`, import `mcp_common`. The directory tracks the import name because that is what the source under it declares.
+- **SHOULD**: Tag releases per package, namespaced by the distribution name: `{distribution-name}-vX.Y.Z` (e.g. `cloto-mcp-common-v0.6.0`). One tag predates this convention — `mcp-common-v0.5.1` (2026-05-11) — and is inert: it points at a commit older than the publish workflow, so it never triggered a run. Leave it; it is history, not a live release.
+- **Publishing status**: nothing in this workspace is on PyPI. `packages/mcp-common` is consumed by vendoring, not by installing, and stays unpublished until there is a consumer that needs a real release (decision 2026-07-29). The workflow is dormant, not retired — it fires on a tag push.
 - **SHOULD**: Document version bump rationale (minor for additive ports, patch for fixes) in the bumping PR. Phase 2 Step 2-α/β/γ/δ used minor bumps (cadence); Step 2-ε was patch (release-signal choice). Cadence is not automatic.
 
 ## Adding a New Workspace Package
