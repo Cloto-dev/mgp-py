@@ -23,7 +23,7 @@ package = false
 members = ["packages/*"]
 
 [tool.uv.sources]
-mcp-common = { workspace = true }
+cloto-mcp-common = { workspace = true }
 
 [tool.ruff]
 line-length = 100

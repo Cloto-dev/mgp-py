@@ -1,5 +1,12 @@
 [project]
-name = "mcp-common"
+# Distribution name, deliberately distinct from the import name `mcp_common`
+# below. `mcp-common` on PyPI belongs to an unrelated project
+# (github.com/lesleslie/mcp-common), so publishing under it was never
+# possible; `cloto-mcp-common` matches the `cloto-mcp-*` namespace the
+# servers in clotohub-servers already use, and this is their shared library.
+# The import name does not follow: `mcp_common` is vendored into every
+# consumer, and renaming it would break them for no gain.
+name = "cloto-mcp-common"
 version = "0.6.0"
 description = "Common Python utilities shared across Magic Gateway Protocol (MGP) servers."
 requires-python = ">=3.11"
@@ -13,8 +20,12 @@ dependencies = [
   # `mcp` package is a hard runtime dependency for any consumer that uses
   # `mgp_utils`. The other foundation modules (validation / isolation /
   # no_persist) are stdlib-only, but a single declared dep is simpler than
-  # split optional-extras for now.
-  "mcp>=1.0",
+  # split optional-extras for now. Capped below 2.0: `mcp_common.mcp_utils`
+  # binds the `Server.list_tools` / `Server.call_tool` decorators that mcp
+  # 2.0.0 removed in favour of `add_request_handler`, so an unbounded floor
+  # resolves a release this package cannot bind against. Lifting the cap is
+  # the migration to the 2.0 handler API.
+  "mcp>=1.0,<2",
   # `mcp_common.embedding_client` / `semantic_cache` / `search` perform
   # async HTTP calls via `httpx`. `embedding_client._embed_via_api` also
   # lazily imports `numpy` for L2-normalization when `mode="api"`; numpy

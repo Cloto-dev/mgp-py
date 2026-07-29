@@ -6,7 +6,7 @@ uv workspace of Python utilities for the Magic Gateway Protocol (MGP).
 
 | Package | Status | Description |
 |---|---|---|
-| [`packages/mcp-common`](./packages/mcp-common) | scaffold (v0.1.0) | Common utilities shared across MGP servers — mcp tooling, validation, embedding client, LLM provider helpers. |
+| [`packages/mcp-common`](./packages/mcp-common) | unpublished | Common utilities shared across MGP servers — mcp tooling, validation, embedding client, LLM provider helpers. Distributed as `cloto-mcp-common`; imported as `mcp_common`. |
 
 Planned (no implementation yet):
 

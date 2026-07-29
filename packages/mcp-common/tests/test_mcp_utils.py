@@ -260,3 +260,40 @@ def test_install_mgp_validation_filter_is_idempotent():
             if filt not in before:
                 root.removeFilter(filt)
         mcp_utils._MGP_FILTER_INSTALLED = False
+
+
+# ---------------------------------------------------------------------------
+# install_mgp_validation_filter — the filter has to be somewhere records reach.
+# ---------------------------------------------------------------------------
+
+
+def test_filter_drops_propagated_validation_noise(caplog):
+    """A filter on the root LOGGER never sees what a child logger propagates.
+
+    That was the defect: records logged by the SDK's own ``mcp.*`` loggers reach
+    the root logger's handlers without consulting the root logger's filters, so
+    the install reported success and suppressed nothing. Drive a propagated
+    record, which is the only shape that matters here.
+    """
+    import logging
+
+    from mcp_common import mcp_utils
+
+    mcp_utils._MGP_FILTER_INSTALLED = False
+    logging.getLogger().filters.clear()
+    mcp_utils.install_mgp_validation_filter()
+    try:
+        with caplog.at_level("WARNING"):
+            logging.getLogger("mcp.shared.session").warning(
+                "Failed to validate request: 1 validation error for ClientRequest"
+            )
+        assert "Failed to validate request" not in caplog.text
+
+        # Unrelated warnings must still get through — the filter drops one
+        # message class, not logging in general.
+        with caplog.at_level("WARNING"):
+            logging.getLogger("mcp.shared.session").warning("Connection reset by peer")
+        assert "Connection reset by peer" in caplog.text
+    finally:
+        logging.getLogger().filters.clear()
+        mcp_utils._MGP_FILTER_INSTALLED = False

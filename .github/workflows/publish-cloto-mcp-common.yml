@@ -1,6 +1,6 @@
-name: Publish mcp-common to PyPI
+name: Publish cloto-mcp-common to PyPI
 
-# Triggered by a per-package tag in the `mcp-common-vX.Y.Z` namespace
+# Triggered by a per-package tag in the `cloto-mcp-common-vX.Y.Z` namespace
 # (CLAUDE.md "Per-Package Version & Release") or manual dispatch against
 # an existing tag (lets us publish a previously-cut tag without retag).
 #
@@ -17,11 +17,11 @@ name: Publish mcp-common to PyPI
 on:
   push:
     tags:
-      - 'mcp-common-v*'
+      - 'cloto-mcp-common-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to publish (e.g. mcp-common-v0.5.1). Must already point at the commit you want to ship.'
+        description: 'Existing tag to publish (e.g. cloto-mcp-common-v0.6.0). Must already point at the commit you want to ship.'
         required: true
         type: string
 
@@ -33,17 +33,17 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/mcp-common
+      url: https://pypi.org/p/cloto-mcp-common
     steps:
       - name: Resolve target ref
         id: ref
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-            echo "tag_version=${tag#mcp-common-v}" >> "$GITHUB_OUTPUT"
+            echo "tag_version=${tag#cloto-mcp-common-v}" >> "$GITHUB_OUTPUT"
           else
             echo "ref=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "tag_version=${GITHUB_REF#refs/tags/mcp-common-v}" >> "$GITHUB_OUTPUT"
+            echo "tag_version=${GITHUB_REF#refs/tags/cloto-mcp-common-v}" >> "$GITHUB_OUTPUT"
           fi
         env:
           tag: ${{ inputs.tag }}
