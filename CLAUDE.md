@@ -49,6 +49,21 @@ CI (`.github/workflows/ci.yml`) runs `uv sync --all-packages` → `ruff check .`
 - **`target-version = "py311"`** consistent with workspace Python floor.
 - **Lint select**: `E`, `F`, `I`, `W`, `UP`. `UP037` may auto-unquote string annotations under `from __future__ import annotations` — review such changes carefully.
 
+## Issue Registry (`qa/issue-registry.json`)
+
+Known defects in this workspace are recorded as entries naming a file and a pattern, plus whether that pattern is expected to be `present` (an open defect, or a fix marker) or `absent` (a defect that was removed). `scripts/verify_issues.py` decides whether each claim still holds; `packages/mcp-common/tests/test_issue_registry.py` drives it, so the existing `pytest` job is the gate and no separate workflow step is needed.
+
+```bash
+python scripts/verify_issues.py                 # check every entry
+python scripts/verify_issues.py --filter open   # only the open ones
+```
+
+- **MUST**: Measure a pattern against the file before committing the entry. A pattern that matches nothing is a checker that reports nothing, and it will let the defect it names disappear unnoticed. The script fails such an entry rather than passing it, but that only helps if the entry is run before it is pushed.
+- **MUST**: Keep a pattern matchable within a **single line** — matching is line by line. A string that spans adjacent source literals the interpreter joins cannot be pinned, because no line contains it. An identifier (a function or constant name) is the safest default: it does not straddle a line break and contains no regex metacharacters.
+- **MUST NOT**: Put a `|` in a pattern or a title. Nothing here splits on it — that is why the checker is Python rather than a shell script around `grep` — but sibling registries are read by one that does, and a row carrying the delimiter drops out of verification there while the run still reports success.
+- **SHOULD**: Record what was *measured*, not what the code was read to do. Every entry carries a `measured` field with the observation that produced it.
+- **Identifiers are local to this repository.** `bug-001` here is unrelated to `bug-001` anywhere else.
+
 ## Per-Package Version & Release
 
 - **MUST**: Each `packages/<pkg>/pyproject.toml` carries its own `version = "X.Y.Z"`. Workspace root is `version = "0.0.0"` and `package = false` (never published).
