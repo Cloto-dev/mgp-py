@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "scripts" / "verify_issues.py"
 REGISTRY = REPO_ROOT / "qa" / "issue-registry.json"
@@ -131,3 +133,50 @@ def test_an_empty_registry_fails(tmp_path):
     result = _run("--registry", str(_registry_with(tmp_path, mutate)))
     assert result.returncode == 1
     assert "nothing was checked" in result.stdout
+
+
+# --- the pointer to the schema ---------------------------------------------
+#
+# `$schema` is the only link from the data to the document saying what its shape
+# is. A link nothing follows is free to be wrong in the one way that matters: in
+# a sibling registry the field held a URL that had rotted into a 404, and in
+# another it named a file that repository does not contain, both with their
+# gates green for months. A repo-relative path is the only form a checker that
+# must work offline can follow, so it is the only form accepted.
+
+
+def test_the_registry_names_a_schema_that_exists():
+    doc = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    schema = doc.get("$schema")
+    assert schema, "the registry names no schema"
+    assert (REPO_ROOT / schema).is_file(), f"$schema points at {schema!r}, which is not here"
+
+
+@pytest.mark.parametrize(
+    ("schema", "why"),
+    [
+        (None, "the registry names no schema at all"),
+        ("qa/not-a-file.md", "the path names nothing in the repository"),
+        ("https://example.invalid/qa/issue-registry.schema.md", "a URL cannot be followed"),
+        ("/etc/passwd", "an absolute path is not repo-relative"),
+        ("../../../etc/passwd", "the path escapes the repository"),
+    ],
+)
+def test_a_schema_pointer_that_leads_nowhere_fails(tmp_path, schema, why):
+    def mutate(doc):
+        if schema is None:
+            doc.pop("$schema", None)
+        else:
+            doc["$schema"] = schema
+
+    result = _run("--registry", str(_registry_with(tmp_path, mutate)))
+
+    assert result.returncode == 1, f"exited 0 although {why}:\n{result.stdout}{result.stderr}"
+    assert "$schema" in result.stdout or "no '$schema'" in result.stdout, result.stdout
+
+
+def test_a_schema_pointer_that_resolves_is_accepted(tmp_path):
+    """The control: the check must not reject the shape the registry actually has."""
+    result = _run("--registry", str(_registry_with(tmp_path, lambda doc: None)))
+
+    assert result.returncode == 0, result.stdout + result.stderr

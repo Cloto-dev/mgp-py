@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -60,7 +61,39 @@ def _load(registry: Path) -> list[dict]:
     issues = data.get("issues")
     if not isinstance(issues, list):
         raise Failure("registry has no 'issues' list")
+    _check_schema_pointer(data)
     return issues
+
+
+def _check_schema_pointer(data: dict) -> None:
+    """The registry has to name the document describing its shape, and that name
+    has to lead somewhere.
+
+    `$schema` is the only link from the data to its description, and a link
+    nothing follows is free to be wrong in the one way that matters. In a sibling
+    registry the field held a URL that had rotted into a 404, and in another it
+    named a file that repository does not contain -- both with their gates green
+    for months. A repo-relative path is the only form a checker that must work
+    offline can follow, so it is the only form accepted, and it is resolved
+    against the repository root exactly as `file` is.
+    """
+    schema = data.get("$schema")
+    if not schema:
+        raise Failure(
+            "registry names no '$schema'. That field is the only pointer from the data "
+            "to the document saying what its shape is; without it the shape is whatever "
+            "the reader assumes"
+        )
+    if "://" in schema or os.path.isabs(schema):
+        raise Failure(
+            f"'$schema' is {schema!r}; it must be a path relative to the repository "
+            f"root, because that is the only form this check can follow"
+        )
+    target = (REPO_ROOT / schema).resolve()
+    if not (target.is_relative_to(REPO_ROOT) and target.is_file()):
+        raise Failure(
+            f"'$schema' points at {schema!r}, which is not a file in this repository"
+        )
 
 
 def _check(entry: dict) -> tuple[str, str]:

@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "$schema": "qa/issue-registry.schema.md",
   "description": "Mechanical verification registry for this workspace. Each entry names a file and a pattern, and says whether that pattern is expected to be present or absent; scripts/verify_issues.py decides whether the claim still holds. Identifiers are local to this repository and do not correspond to identifiers in any other one. A pattern is matched line by line with Python's re, so it must match within a single line: a string spanning adjacent source literals that the interpreter joins cannot be pinned, because no line contains it.",
   "issues": [
     {
@@ -154,6 +154,20 @@
       "expected": "present",
       "pattern": "if norm > 1e-9:",
       "discovered": "2026-09-07",
+      "version": "0.6.0"
+    },
+    {
+      "id": "bug-012",
+      "title": "The registry named no schema, so nothing said what its shape was",
+      "severity": "MEDIUM",
+      "status": "fixed",
+      "category": "unchecked-pointer",
+      "file": "scripts/verify_issues.py",
+      "description": "The registry carried no `$schema` field at all, so there was no link from the data to any description of its shape, and the checker asked for none. It did carry a root `version` of \"1.0\" -- a number nothing compared to anything, and the same value three sibling registries declared for three shapes that had already diverged from this one and from each other. A field the checker does not read cannot be wrong loudly; it can only be wrong quietly, which is what happened in the siblings: one named a file its repository does not contain, and one held a URL that had rotted into a 404, both with their gates green for months.",
+      "measured": "On 2026-09-08 the registry's root keys were exactly [version, description, issues]; the checker read neither of the first two. Asking the GitHub API for the document a sibling registry's `$schema` URL named returned 404. After the fix, five malformed pointers (absent, a path naming nothing, a URL, an absolute path, and one escaping the repository) each exited 1 where the previous checker exited 0, and a valid pointer exited 0 on both.",
+      "expected": "present",
+      "pattern": "is not a file in this repository",
+      "discovered": "2026-09-08",
       "version": "0.6.0"
     }
   ]
