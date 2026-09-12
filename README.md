@@ -45,6 +45,29 @@ mgp-py/
 └── .github/workflows/ci.yml
 ```
 
+## Shared request identity
+
+`mcp_common.identity` provides a frozen `Principal`, whole-string `${ENV_VAR}`
+credential resolution, duplicate credential validation, constant-time static
+token comparison across every entry, and a consumer-owned request context.
+`issuer` and `subject` remain empty for static tokens; only a resolver that
+verified those claims should populate them. Configuration formats,
+authorization decisions and database schemas belong to each consumer.
+
+Consumers may vendor this standard-library-only module without adding a
+runtime package dependency. Synchronize from this checkout into an existing
+Python package, then check for drift before validating a consumer change:
+
+```bash
+python scripts/sync-identity.py --target-package /path/to/consumer/package
+python scripts/sync-identity.py --target-package /path/to/consumer/package --check
+```
+
+Repeat `--target-package` for multiple consumers. The script copies only
+`identity.py`, preserves other files, and checks byte equality. It does not
+automatically update independent repositories. Run the consumer's own
+authentication and authorization tests after syncing.
+
 ## Related projects
 
 - [mgp-spec](https://github.com/Cloto-dev/mgp-spec) — Magic Gateway Protocol specification (MIT).
