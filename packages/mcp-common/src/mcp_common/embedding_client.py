@@ -323,21 +323,19 @@ class EmbeddingClient:
                 )
             return _validate_token_info(raw, texts), EmbedOutcome(attempted=True, ok=True)
         except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError) as e:
-            logger.warning("Token count request failed: %s", e)
             safe = _safe_endpoint(url)
             # Either configured form of the URL can appear in the exception text, and
-            # both carry the same userinfo and query string.
+            # both carry the same userinfo and query string. The log gets the cleaned
+            # line too: httpx puts the request URL in its own message.
             detail = (
                 str(e).replace(url, safe).replace(self._http_url, _safe_endpoint(self._http_url))
             )
             hint = ""
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
                 hint = " (the server predates the token report)"
-            return None, EmbedOutcome(
-                attempted=True,
-                ok=False,
-                error=f"mode=http / POST {safe} failed: {type(e).__name__}: {detail}{hint}",
-            )
+            evidence = f"mode=http / POST {safe} failed: {type(e).__name__}: {detail}{hint}"
+            logger.warning("Token count request failed: %s", evidence)
+            return None, EmbedOutcome(attempted=True, ok=False, error=evidence)
 
     async def embed_with_outcome(
         self, texts: list[str]
@@ -373,8 +371,15 @@ class EmbeddingClient:
                     error=f"mode={self.mode} is not a supported embedding mode",
                 )
         except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError) as e:
-            logger.warning("Embedding request failed: %s", e)
-            return None, EmbedOutcome(attempted=True, ok=False, error=self._failure_evidence(e))
+            # bug-425: build the evidence first and log that, rather than logging the
+            # exception and sanitising only the value handed back. httpx puts the
+            # request URL inside its own message, so an endpoint configured with
+            # credentials in the userinfo or the query string reached the log verbatim
+            # while the returned error was already clean -- the sanitiser existed and
+            # this one line went around it.
+            evidence = self._failure_evidence(e)
+            logger.warning("Embedding request failed: %s", evidence)
+            return None, EmbedOutcome(attempted=True, ok=False, error=evidence)
 
         if not result:
             # A 2xx that carried no usable embeddings. Reported as a failure because
@@ -521,7 +526,18 @@ class EmbeddingClient:
                 raise EmbeddingResponseError(
                     f"embedding {position}[{index}] is {_describe(value)}, expected a number"
                 )
-            number = float(value)
+            # JSON has no integer ceiling, so a body may carry an int with more
+            # digits than float64 can hold. `float()` answers that with
+            # OverflowError, an ArithmeticError, which is not in the failure
+            # boundary's except tuple and so escaped it — the caller's store path
+            # aborted instead of storing the row without a vector. The verdict is
+            # the same one a non-finite element gets: not a usable number.
+            try:
+                number = float(value)
+            except OverflowError:
+                raise EmbeddingResponseError(
+                    f"embedding {position}[{index}] does not fit in float64"
+                ) from None
             if not math.isfinite(number):
                 raise EmbeddingResponseError(f"embedding {position}[{index}] is not finite")
             # Finite in float64 is not enough: these are stored as float32, where
@@ -601,13 +617,36 @@ class EmbeddingClient:
             raise EmbeddingResponseError(
                 f"embedding response `data` is {_describe(items)}, expected a list"
             )
-        raw = []
+        # Each item carries `index`, documented as its position in the input list;
+        # arrival order is not promised. Appending in arrival order therefore hands
+        # one text another text's vector whenever a backend answers out of order,
+        # and nothing downstream can see it: the count still matches, every vector
+        # is still well-formed, and the wrong vector is stored and searched for that
+        # text with no signal. Place by the index instead, and refuse a response
+        # whose indices are not exactly 0..n-1 — without them the correspondence
+        # cannot be established at all, and guessing it is what caused this.
+        raw: list[object] = [None] * len(items)
+        claimed: set[int] = set()
         for position, item in enumerate(items):
             if not isinstance(item, dict):
                 raise EmbeddingResponseError(
                     f"embedding {position} is {_describe(item)}, expected an object"
                 )
-            raw.append(item["embedding"])
+            slot = item.get("index")
+            # bool is an int subclass, so JSON `true` would otherwise index slot 1.
+            if isinstance(slot, bool) or not isinstance(slot, int):
+                raise EmbeddingResponseError(
+                    f"embedding {position} has index {_describe(slot)}, expected an integer"
+                )
+            if not 0 <= slot < len(items) or slot in claimed:
+                raise EmbeddingResponseError(
+                    f"embedding indices are not exactly 0..{len(items) - 1}: "
+                    f"item at position {position} carries index {slot}"
+                )
+            claimed.add(slot)
+            raw[slot] = item["embedding"]
+        # Every index is unique and inside the range, and there are as many items as
+        # slots, so no slot is left unfilled and no `None` reaches the validator.
         embeddings = self._validate_batch(raw, len(texts))
 
         # L2-normalize for consistent cosine similarity via dot product. Every
