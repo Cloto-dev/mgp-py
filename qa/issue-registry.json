@@ -169,6 +169,48 @@
       "pattern": "is not a file in this repository",
       "discovered": "2026-09-08",
       "version": "0.6.0"
+    },
+    {
+      "id": "bug-013",
+      "title": "Endpoint credentials reached failure evidence and logs in any spelling but the configured one",
+      "severity": "MEDIUM",
+      "status": "fixed",
+      "category": "credential-redaction",
+      "file": "packages/mcp-common/src/mcp_common/embedding_client.py",
+      "pattern": "detail = redact_urls\\(str\\(exc\\), raw\\)",
+      "expected": "present",
+      "description": "The client removed userinfo and query strings from exception text only by replacing the configured URL string. httpx quotes its own normalised spelling of the request URL (host lower-cased, a default port dropped, userinfo and query percent-encoded), so with any other spelling the password or query key was written to the WARNING log and returned in the failure evidence callers quote. Every URL in the text is now rebuilt without userinfo and query (redact_urls), after the configured spellings are replaced.",
+      "measured": "With an endpoint configured as http://svc:PASSWORD@LOCALHOST:8401/embed?key=SECRET and a 503 from the server, the failure evidence of embed, capabilities and token counting contained both secrets in httpx's lower-case spelling; five spellings were tested in packages/mcp-common/tests/test_embedding_redaction.py, all 15 cases failing before the change and passing after.",
+      "discovered": "2026-10-13",
+      "version": "0.6.0"
+    },
+    {
+      "id": "bug-014",
+      "title": "httpx's INFO request line logged endpoint credentials on every request",
+      "severity": "MEDIUM",
+      "status": "fixed",
+      "category": "credential-redaction",
+      "file": "packages/mcp-common/src/mcp_common/embedding_client.py",
+      "pattern": "^        install_httpx_log_redaction\\(\\)$",
+      "expected": "present",
+      "description": "httpx logs each request at INFO as 'HTTP Request: POST <url>' with the URL as sent, through its own logger, which none of the client's sanitising reached. A host that logs at INFO wrote a credential configured in the endpoint URL into every line, on success as well as on failure. initialize() now installs a filter on the httpx logger that strips userinfo and query from every URL in the record.",
+      "measured": "With an endpoint carrying userinfo and a query key, one successful embed through a mock transport produced an httpx INFO record containing both; after the change the record still names the method, host and path and contains neither (test_httpx_request_log_line_carries_no_credential).",
+      "discovered": "2026-10-13",
+      "version": "0.6.0"
+    },
+    {
+      "id": "bug-015",
+      "title": "A deeply nested backend body raised RecursionError out of every failure boundary",
+      "severity": "MEDIUM",
+      "status": "fixed",
+      "category": "failure-boundary",
+      "file": "packages/mcp-common/src/mcp_common/embedding_client.py",
+      "pattern": "embedding response is nested deeper than the parser can follow",
+      "expected": "present",
+      "description": "The JSON decoder answers nesting deeper than the interpreter's recursion limit with RecursionError. Such a body is a few hundred kilobytes, inside the response byte budget, and RecursionError is in no failure boundary's except tuple, so it escaped embed, capabilities and token counting and aborted the caller's operation instead of reaching it as a failed call. The decode now maps it to EmbeddingResponseError.",
+      "measured": "A 200 response of 100,000 nested arrays raised RecursionError from embed_with_outcome, capabilities_with_outcome and count_tokens_with_outcome, with and without a response budget; after the change each returns a failed outcome whose error names the nesting.",
+      "discovered": "2026-10-13",
+      "version": "0.6.0"
     }
   ]
 }
