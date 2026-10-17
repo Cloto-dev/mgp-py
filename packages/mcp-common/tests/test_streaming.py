@@ -790,3 +790,245 @@ async def test_streaming_registers_and_cleans_up_active_stream(streaming_config,
 
     assert observed_during is True
     assert request_id not in _active_streams
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["read_error", "remote_protocol_error"])
+async def test_streaming_keeps_the_streamed_text_when_the_connection_drops(
+    streaming_config, minimal_args, failure
+):
+    """A reset or a body closed early after chunks were sent takes the partial-result path,
+    as a timeout does; the chunks already reached the client as notifications."""
+    import httpx
+
+    error = {
+        "read_error": httpx.ReadError("connection reset by peer"),
+        "remote_protocol_error": httpx.RemoteProtocolError(
+            "peer closed connection without sending complete message body"
+        ),
+    }[failure]
+
+    class _DroppingLines:
+        def __init__(self):
+            self._lines = [
+                'data: {"choices":[{"delta":{"content":"half "}}]}',
+                'data: {"choices":[{"delta":{"content":"done"}}]}',
+            ]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._lines:
+                return self._lines.pop(0)
+            raise error
+
+    response = _MockStreamResponse(200, [])
+    response.aiter_lines = _DroppingLines
+    session = MagicMock()
+    session._write_stream = MagicMock()
+    session._write_stream.send = AsyncMock()
+    ctx = SimpleNamespace(request_id=556, session=session)
+
+    with patch(
+        "mcp_common.llm_provider.httpx.AsyncClient", return_value=_MockAsyncClient(response)
+    ):
+        result = await handle_think_with_tools_streaming(streaming_config, minimal_args, ctx)
+
+    payload = json.loads(result[0].text)
+    assert payload["type"] == "final", payload
+    assert payload["content"] == "half done"
+    assert payload["_mgp"]["partial"] is True and payload["_mgp"]["chunks_sent"] == 2
+    assert payload["error"]["code"] == "stream_error"
+
+
+# ---------------------------------------------------------------------------
+# A cancel that arrives before the stream registers
+# ---------------------------------------------------------------------------
+
+
+def _tools_call(req_id: int, *, stream: bool) -> JSONRPCRequest:
+    params: dict = {"name": "think_with_tools", "arguments": {}}
+    if stream:
+        params["_mgp"] = {"stream": True}
+    return JSONRPCRequest(jsonrpc="2.0", id=req_id, method="tools/call", params=params)
+
+
+async def _pump(messages, config, pending):
+    """Run the interceptor over ``messages``; return (forwarded, replies)."""
+    import anyio
+    from mcp_common.llm_provider import _opens_stream
+    from mcp_common.mcp_stream_interceptor import mgp_message_interceptor
+
+    raw_send, raw_recv = anyio.create_memory_object_stream(len(messages))
+    inner_send, inner_recv = anyio.create_memory_object_stream(len(messages))
+    for root in messages:
+        await raw_send.send(SimpleNamespace(message=SimpleNamespace(root=root)))
+    await raw_send.aclose()
+    write = _CapturingWriteStream()
+    await mgp_message_interceptor(
+        raw_recv,
+        inner_send,
+        write,
+        {},
+        pending,
+        lambda request: _opens_stream(config, request),
+    )
+    async with inner_recv:
+        forwarded = [item.message.root async for item in inner_recv]
+    return forwarded, write.sent
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_read_before_the_stream_registers_still_stops_it(
+    streaming_config, minimal_args
+):
+    from mcp_common.llm_provider import _pending_streams
+
+    _pending_streams.clear()
+    call = _tools_call(31, stream=True)
+    forwarded, replies = await _pump(
+        [call, _make_cancel_request(req_id=32, target_id=31, reason="user_cancelled")],
+        streaming_config,
+        _pending_streams,
+    )
+
+    assert forwarded == [call]
+    assert replies[0]["id"] == 32
+    assert replies[0]["result"] == {"cancelled": True, "partial_result": {"content": ""}}
+
+    # Only now does the SDK dispatch the forwarded call to its handler.
+    async def upstream():
+        yield {"choices": [{"delta": {"content": "Hel"}}]}
+        yield {"choices": [{"delta": {"content": "lo"}}]}
+
+    session = MagicMock()
+    session._write_stream = MagicMock()
+    session._write_stream.send = AsyncMock()
+    ctx = SimpleNamespace(request_id=31, session=session)
+    with patch("mcp_common.llm_provider.call_llm_api_streaming", return_value=upstream()):
+        result = await handle_think_with_tools_streaming(streaming_config, minimal_args, ctx)
+
+    payload = json.loads(result[0].text)
+    assert payload["content"] == "" and payload["_mgp"]["chunks_sent"] == 0, payload
+    assert payload["_mgp"]["cancelled"] is True
+    assert payload["_mgp"]["cancel_reason"] == "user_cancelled"
+    session._write_stream.send.assert_not_awaited()
+    assert 31 not in _pending_streams and 31 not in _active_streams
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_for_a_call_that_will_not_stream_is_still_not_active(streaming_config):
+    from mcp_common.llm_provider import _pending_streams
+
+    _pending_streams.clear()
+    _, replies = await _pump(
+        [
+            _tools_call(41, stream=False),
+            _make_cancel_request(req_id=42, target_id=41, reason="user_cancelled"),
+        ],
+        streaming_config,
+        _pending_streams,
+    )
+
+    assert replies[0]["result"] == {"cancelled": False, "reason": "not_active"}
+    assert _pending_streams == {}
+
+
+@pytest.mark.asyncio
+async def test_a_streaming_request_on_a_provider_that_cannot_stream_is_not_recorded(
+    non_streaming_config,
+):
+    pending: dict = {}
+    await _pump([_tools_call(51, stream=True)], non_streaming_config, pending)
+    assert pending == {}
+
+
+@pytest.mark.asyncio
+async def test_a_finished_call_leaves_no_pending_entry_behind(streaming_config):
+    """A forwarded call that never registers a stream is dropped when it ends, so a later
+    cancel naming its id is answered not_active rather than taken for a pending one."""
+    from mcp.server.lowlevel.server import request_ctx
+    from mcp.shared.context import RequestContext
+    from mcp.types import CallToolResult, ServerResult
+    from mcp_common.llm_provider import _install_mgp_stream_wrapper, _pending_streams
+
+    server = create_llm_mcp_server(streaming_config)
+
+    async def finished(_req):
+        return ServerResult(CallToolResult(content=[], isError=False))
+
+    server.request_handlers[CallToolRequest] = finished
+    _install_mgp_stream_wrapper(server)
+    _pending_streams.clear()
+    _pending_streams[77] = None
+
+    token = request_ctx.set(
+        RequestContext(request_id=77, meta=None, session=MagicMock(), lifespan_context=None)
+    )
+    try:
+        await server.request_handlers[CallToolRequest](
+            CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams.model_validate(
+                    {"name": "think_with_tools", "arguments": {}, "_mgp": {"stream": True}}
+                ),
+            )
+        )
+    finally:
+        request_ctx.reset(token)
+
+    assert 77 not in _pending_streams
+
+
+def test_the_pending_table_is_bounded():
+    from mcp_common.mcp_stream_interceptor import _PENDING_STREAMS_MAX, _remember_pending
+
+    pending: dict = {}
+    for request_id in range(_PENDING_STREAMS_MAX + 10):
+        _remember_pending(pending, request_id)
+
+    assert len(pending) == _PENDING_STREAMS_MAX
+    assert min(pending) == 10, "the oldest entries are the ones dropped"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fragment",
+    [None, "c1", {"index": "0", "id": "x"}, {"index": -1, "id": "x"}],
+    ids=["null", "string", "string-index", "negative-index"],
+)
+async def test_streaming_skips_a_tool_call_fragment_it_cannot_place(
+    streaming_config, minimal_args, fragment
+):
+    """A fragment the buffer cannot place is skipped; the answer and the usable calls stay."""
+
+    async def upstream():
+        yield {"choices": [{"delta": {"tool_calls": [fragment]}}]}
+        yield {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "c1",
+                                "function": {"name": "do_thing", "arguments": '{"a": 1}'},
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+
+    session = MagicMock()
+    session._write_stream = MagicMock()
+    session._write_stream.send = AsyncMock()
+    ctx = SimpleNamespace(request_id=6, session=session)
+    with patch("mcp_common.llm_provider.call_llm_api_streaming", return_value=upstream()):
+        result = await handle_think_with_tools_streaming(streaming_config, minimal_args, ctx)
+
+    payload = json.loads(result[0].text)
+    assert payload.get("type") == "tool_calls", payload
+    assert payload["calls"] == [{"id": "c1", "name": "do_thing", "arguments": {"a": 1}}]
