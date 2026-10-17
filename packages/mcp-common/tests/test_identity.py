@@ -22,6 +22,36 @@ def test_env_reference_is_resolved_without_accepting_partial_references(monkeypa
         identity.resolve_env_token("${TEST_IDENTITY_SECRET}")
 
 
+@pytest.mark.parametrize(
+    "token,reason",
+    [
+        ("secret-value\n", "whitespace"),
+        ("secret-value ", "whitespace"),
+        ("\tsecret-value", "whitespace"),
+        ("secret\x1bvalue", "control character"),
+        ("secret\x7fvalue", "control character"),
+    ],
+)
+def test_a_token_no_client_can_present_is_refused_at_load(monkeypatch, token, reason):
+    """HTTP strips the whitespace around a header value and cannot carry a control
+    character, so such a token matches no request; refusing it at load names the cause."""
+    monkeypatch.setenv("TEST_IDENTITY_SECRET", token)
+    for raw in (token, "${TEST_IDENTITY_SECRET}"):
+        with pytest.raises(identity.CredentialError, match=reason) as caught:
+            identity.resolve_env_token(raw)
+        assert "secret" not in str(caught.value)
+    with pytest.raises(identity.CredentialError, match=reason) as caught:
+        identity.validate_token_entries([(token, "client-a")])
+    assert "secret" not in str(caught.value)
+
+
+def test_a_token_with_inner_punctuation_still_loads():
+    """Control: the refusal is about what HTTP cannot carry, not about unusual tokens."""
+    for token in ("a.b-c_d~e+f/g==", "x"):
+        assert identity.resolve_env_token(token) == token
+        identity.validate_token_entries([(token, "client-a")])
+
+
 def test_duplicate_and_reserved_credentials_are_rejected():
     entries = [("first-token", "first"), ("second-token", "second")]
     identity.validate_token_entries(entries)

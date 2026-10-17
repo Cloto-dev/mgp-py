@@ -175,3 +175,71 @@ async def test_a_failed_token_report_keeps_endpoint_credentials_out_of_the_log(c
     assert "/count_tokens" in outcome.error
     assert SECRET_PASSWORD not in caplog.text and SECRET_QUERY not in caplog.text, caplog.text
     assert "Token count request failed" in caplog.text, "the failure stopped being reported at all"
+
+
+# --- a malformed configured URL stays inside the boundary -----------------------------
+
+
+def _never_called(request):
+    raise AssertionError("httpx sent a request to a URL it could not parse")
+
+
+def _unavailable(request):
+    return httpx.Response(503, json={"error": "down"})
+
+
+async def _three_calls(client):
+    """Every request path of the client, each as the (value, outcome) pair it returns."""
+    return {
+        "embed": await client.embed_with_outcome(["x"]),
+        "capabilities": await client.capabilities_with_outcome(),
+        "count_tokens": await client.count_tokens_with_outcome(["x"]),
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("port", ["abc", "443x"])
+async def test_a_port_httpx_cannot_parse_is_a_failed_outcome_on_every_path(port):
+    client = EmbeddingClient(mode="http", http_url=f"http://127.0.0.1:{port}/embed")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(_never_called))
+
+    for name, (value, outcome) in (await _three_calls(client)).items():
+        assert value is None and outcome.attempted and not outcome.ok, (name, outcome)
+        assert "InvalidURL" in outcome.error and f"127.0.0.1:{port}" in outcome.error, name
+
+
+@pytest.mark.asyncio
+async def test_an_out_of_range_port_does_not_replace_the_failure_it_reports():
+    """httpx accepts port 99999, so the request fails on its own terms (here a 503); naming
+    the endpoint in that failure must not raise in place of it."""
+    client = EmbeddingClient(mode="http", http_url="http://127.0.0.1:99999/embed")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(_unavailable))
+
+    for name, (value, outcome) in (await _three_calls(client)).items():
+        assert value is None and outcome.attempted and not outcome.ok, (name, outcome)
+        assert "HTTPStatusError" in outcome.error and "503" in outcome.error, name
+        assert "127.0.0.1:99999" in outcome.error, name
+
+
+# --- a negative cache size ------------------------------------------------------------
+
+
+def _unit_vector(request):
+    return httpx.Response(200, json={"embeddings": [[1.0, 0.0]]})
+
+
+@pytest.mark.asyncio
+async def test_a_negative_cache_size_turns_caching_off_instead_of_failing_every_embed():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return _unit_vector(request)
+
+    client = EmbeddingClient(mode="http", http_url="http://127.0.0.1:8401/embed", cache_size=-1)
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    for _ in range(2):
+        vectors, outcome = await client.embed_with_outcome(["x"])
+        assert outcome.ok and vectors == [[1.0, 0.0]], outcome
+    assert len(calls) == 2, "a disabled cache must not answer the second call"

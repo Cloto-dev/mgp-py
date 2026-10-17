@@ -56,6 +56,20 @@ def test_int_wrong_type_returns_default():
     assert validate_int({"k": None}, "k") == 0
 
 
+def test_int_integral_float_is_the_integer_it_spells():
+    """JSON Schema accepts 3.0 as an integer, so the validator behind it must too."""
+    assert validate_int({"k": 3.0}, "k", 10) == 3
+    assert type(validate_int({"k": 3.0}, "k", 10)) is int
+    assert validate_int({"k": -2.0}, "k", 10) == -2
+    assert validate_int({"k": 0.0}, "k", 10) == 0
+
+
+def test_int_non_integral_float_returns_default():
+    assert validate_int({"k": 2.5}, "k", 10) == 10
+    assert validate_int({"k": float("inf")}, "k", 10) == 10
+    assert validate_int({"k": float("nan")}, "k", 10) == 10
+
+
 def test_int_bool_excluded():
     """bool is a subclass of int — must be rejected."""
     assert validate_int({"k": True}, "k", 0) == 0

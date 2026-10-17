@@ -169,3 +169,50 @@ def test_provider_names_are_distinct_constants():
     assert TavilyProvider.name == "tavily"
     assert DuckDuckGoProvider.name == "duckduckgo"
     assert ChainProvider.name == "chain"
+
+
+# ============================================================
+# DuckDuckGoProvider: a snippet belongs to its own result
+# ============================================================
+
+
+def _ddg_result(n: int, snippet: str | None) -> str:
+    title = f'<a rel="nofollow" class="result__a" href="https://example.com/{n}">Title {n}</a>'
+    if snippet is None:
+        return f'<div class="result">{title}</div>'
+    snippet_anchor = f'<a class="result__snippet" href="https://example.com/{n}">{snippet}</a>'
+    return f'<div class="result">{title}{snippet_anchor}</div>'
+
+
+async def _ddg_search(html: str) -> list[dict]:
+    import httpx
+    from mcp_common.search import DuckDuckGoProvider
+
+    real_client = httpx.AsyncClient
+
+    def page(request):
+        return httpx.Response(200, text=html)
+
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(page))
+
+    with patch("mcp_common.search.httpx.AsyncClient", side_effect=client):
+        return await DuckDuckGoProvider().search("q", 10, "en", None)
+
+
+@pytest.mark.asyncio
+async def test_ddg_a_result_without_a_snippet_does_not_take_the_next_ones():
+    results = await _ddg_search(_ddg_result(1, None) + _ddg_result(2, "Second snippet"))
+
+    assert [(r["url"], r["snippet"]) for r in results] == [
+        ("https://example.com/1", ""),
+        ("https://example.com/2", "Second snippet"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ddg_each_result_keeps_its_own_snippet():
+    """Control: the ordinary page, where every result carries a snippet."""
+    results = await _ddg_search(_ddg_result(1, "First snippet") + _ddg_result(2, "Second snippet"))
+
+    assert [r["snippet"] for r in results] == ["First snippet", "Second snippet"]
